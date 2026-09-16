@@ -1,0 +1,33 @@
+{
+	email {$ACME_EMAIL}
+	# Certificado Let's Encrypt automatico. Nao ha nada a configurar.
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Enquanto a API nao existe, o dominio responde isto. Serve a um proposito:
+	# permite validar DNS e emitir o certificado TLS antes de haver qualquer
+	# codigo — se este endereco abrir com cadeado, a infra esta correta.
+	# --------------------------------------------------------------------------
+	respond "genesis-app: infraestrutura no ar. API ainda nao publicada." 200
+
+	# Ao subir a API, comente o `respond` acima e descomente a linha abaixo:
+	# reverse_proxy api:3000
+}
