@@ -302,7 +302,110 @@ estável e auditada.
 
 ---
 
-## 9. Pendências antes de começar
+## 9. Onde hospedar: a Hostinger serve — mas só de VPS para cima
+
+Assinatura disponível: **Hostinger**. Isso resolve a Fase 1, com uma ressalva que
+muda a escolha do plano.
+
+### O fato que decide
+
+**PostgreSQL não roda nos planos de Web Hosting nem de Cloud Hosting da
+Hostinger.** É limitação declarada da própria empresa — esses planos entregam
+PHP + MySQL/MariaDB e não dão as permissões e os recursos que o Postgres exige.
+Para ter Postgres é preciso **VPS**, onde há root e Docker (a Hostinger inclusive
+tem instalação do Postgres em um clique).
+
+Segundo fato, igualmente importante: nos planos compartilhados **não se roda
+processo 24×7**. Só PHP respondendo a requisição e cron agendado.
+
+### Os dois caminhos
+
+**Caminho 1 — Web/Cloud Hosting que você já tem (custo adicional zero).**
+Tecnicamente funciona para a Opção A, e por um motivo que costuma passar
+despercebido: **o lado da nuvem não precisa de processo 24×7**. Quem tem
+iniciativa é o agente na loja — ele faz `POST`, um script PHP recebe e grava. API
+é só PHP respondendo a requisição, que é exatamente o que hospedagem
+compartilhada faz. O resumo das 19h sai por cron.
+
+O preço disso é gravar em **MySQL em vez de Postgres**: a nuvem passa a ter
+tecnologia diferente da origem, e alguém mantém a tradução de tipos para sempre.
+Para agregados (data, vendedor, valor) a tradução é trivial. Mas é dívida que só
+cresce.
+
+**Caminho 2 — VPS KVM (recomendado).** Root, Docker, Postgres nativo, processo
+contínuo, sem teto. **KVM 1** (1 vCPU, 4 GB RAM, 50 GB NVMe) já sobra para este
+uso — estamos falando de alguns milhares de linhas agregadas por mês, não de
+carga de ERP. Sai na faixa de US$ 4,99/mês promocional (~US$ 11,99 na renovação;
+conte com a renovação, não com a promoção). **KVM 2** só se isso for atender
+vários clientes da base ICES.
+
+### Escolha o data center de São Paulo
+
+A Hostinger abriu data center próprio em São Paulo. Dois ganhos diretos:
+
+- **Latência.** O agente na loja e o celular do gestor estão no Brasil. Servidor
+  nos EUA acrescenta ~120 ms em toda requisição — o app "pesado" sem motivo.
+- **LGPD.** Dado financeiro de empresa brasileira permanecendo em território
+  nacional encurta bastante a conversa de contrato e de transferência
+  internacional.
+
+Na criação do VPS a região é escolhida uma vez e **não se troca depois sem
+recriar**. É o tipo de clique de 5 segundos que custa uma migração se errado.
+
+### Stack sugerida no VPS
+
+```
+Ubuntu 22.04 + Docker Compose
+├── postgres:16      → só na rede interna do Docker, SEM porta publicada
+├── api              → Node/Fastify (ou PHP, tanto faz) :3000 interno
+└── caddy            → 443, TLS automático, proxy para a api
+```
+
+Firewall: **só 22 e 443 abertos**. A porta 5432 não é publicada nem para o host —
+é a mesma regra da seção 1, e vale tanto para o banco do cliente quanto para este.
+SSH por chave, senha desabilitada.
+
+### Backup — o ponto onde VPS barato costuma decepcionar
+
+O backup incluído da Hostinger é **semanal**. Para dado financeiro isso significa
+aceitar perder até 7 dias, o que não é aceitável. Some a isso:
+
+- `pg_dump` diário com retenção de 30 dias, **enviado para fora do VPS** (backup
+  no mesmo servidor não é backup);
+- restauração testada de verdade uma vez, antes de considerar a Fase 1 pronta.
+
+Atenuante real: como a nuvem é **espelho** e não origem, o dado verdadeiro
+continua no Genesis. No pior caso, reconstrói-se a nuvem re-sincronizando do
+zero. Vale desenhar o agente para permitir isso desde o começo — um modo
+"ressincronizar tudo" que se roda sob demanda. Custa pouco agora e um dia salva
+o fim de semana de alguém.
+
+### Onde a Hostinger não resolve
+
+- **Notificação push** não é hospedagem. Use Firebase Cloud Messaging (grátis) ou
+  Web Push a partir do próprio PWA — o servidor só dispara.
+- **O agente roda na loja, no Windows do Genesis**, não na Hostinger. O jeito mais
+  robusto não é serviço do Windows: é **Tarefa Agendada a cada 5 minutos**,
+  executando um binário que faz o lote e encerra. Serviço que morre fica morto até
+  alguém perceber; tarefa agendada que falha simplesmente roda de novo em 5
+  minutos. Menos código, e se conserta sozinha.
+
+### Custo mensal realista
+
+| Item | Custo |
+|---|---|
+| VPS KVM 1 (São Paulo) | ~US$ 5–12/mês |
+| Domínio/subdomínio | já incluso na assinatura |
+| TLS (Caddy/Let's Encrypt) | R$ 0 |
+| Firebase Cloud Messaging | R$ 0 |
+| **Total** | **~R$ 30–70/mês** |
+
+Cabe em um único cliente. Se virar produto para a base ICES, o mesmo VPS atende
+vários (multi-tenant por `cliente_id`) até crescer bastante.
+
+---
+
+## 10. Pendências antes de começar
 
 1. **Onde roda o Postgres do Genesis hoje?** Máquina na loja, servidor próprio,
    ou já em nuvem? Muda o esforço da Fase 1.
@@ -310,8 +413,9 @@ estável e auditada.
    pula a hesitação e vai direto para A.
 3. **As tabelas têm data de atualização confiável?** Define sincronização
    incremental × snapshot diário.
-4. **Qual a assinatura disponível para hospedar/publicar?** Precisa suportar
-   Postgres gerenciado e um serviço rodando 24×7 (não só site estático).
+4. ~~Qual a assinatura para hospedar?~~ **Resolvido: Hostinger.** Falta confirmar
+   *qual plano* — se for Web/Cloud Hosting, é preciso somar um VPS KVM 1 (Postgres
+   não roda nesses planos); se já for VPS, não há custo novo.
 5. **iOS, Android ou os dois?** Recomendação: **PWA** primeiro — instala nos dois
    pelo navegador, sem loja, sem revisão da Apple, atualização instantânea. App
    nativo só quando houver motivo concreto.
